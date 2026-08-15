@@ -1,0 +1,10 @@
+venv/
+.venv/
+env/
+__pycache__/
+*.pyc
+.cache/
+.env
+graphrag-streamlit/.cache/
+graphrag-streamlit/graphrag/__pycache__/
+EOT

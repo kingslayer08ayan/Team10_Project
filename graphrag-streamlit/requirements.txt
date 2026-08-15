@@ -1,0 +1,7 @@
+streamlit
+pymupdf
+scikit-learn==1.8.0
+networkx
+pyvis
+reportlab
+python-dotenv
