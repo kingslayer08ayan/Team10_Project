@@ -6,8 +6,8 @@ when the user explicitly asks it to, not on every UI interaction.
 import os
 import pickle
 
-from . import ingest, graph_builder
-from .embeddings import ChunkIndex
+from . import _1_ingest as ingest, _3_graph_builder as graph_builder
+from ._4_embeddings import ChunkIndex
 
 CACHE_PATH = ".cache/graph_index.pkl"
 

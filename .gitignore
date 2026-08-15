@@ -1,6 +1,7 @@
 venv/
 .venv/
 env/
+venv-t10/
 __pycache__/
 *.pyc
 .cache/
@@ -8,3 +9,4 @@ __pycache__/
 graphrag-streamlit/.cache/
 graphrag-streamlit/graphrag/__pycache__/
 EOT
+.vscode/

@@ -8,7 +8,7 @@ from dotenv import load_dotenv
 load_dotenv()  # reads .env in the working directory into os.environ, if present
 
 sys.path.insert(0, os.path.dirname(__file__))
-from graphrag import pipeline, retriever, llm_backend
+from graphrag import pipeline, _6_retriever as retriever, llm_backend
 
 st.set_page_config(page_title="GraphRAG Literature Explorer", layout="wide")
 

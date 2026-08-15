@@ -10,7 +10,7 @@ makes this GraphRAG rather than plain chunk-similarity RAG.
 import networkx as nx
 from networkx.algorithms.community import greedy_modularity_communities
 
-from . import entity_extraction
+from . import _2_entity_extraction as entity_extraction
 
 
 def build_graph(chunks, progress_callback=None):

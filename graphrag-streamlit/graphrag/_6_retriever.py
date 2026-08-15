@@ -11,7 +11,7 @@ Combines two signals per chunk:
 Returns the top-k chunks with full source/page citations plus a score
 breakdown so results are auditable, not a black box.
 """
-from . import hyde as hyde_module
+from . import _5_hyde as hyde_module
 
 
 def _query_matched_communities(query, graph, communities):
