@@ -1,0 +1,9 @@
+streamlit
+pymupdf
+scikit-learn
+networkx
+pyvis
+reportlab
+python-dotenv
+chromadb
+fastembed

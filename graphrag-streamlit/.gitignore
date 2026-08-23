@@ -1,0 +1,28 @@
+# Local environment and secrets
+.env
+.env.*
+!.env.example
+.streamlit/secrets.toml
+
+# Virtual environments
+/venv/
+/venv3/
+/.venv/
+
+# Generated GraphRAG data and caches
+/.cache/
+
+# Python artifacts
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Tool and OS files
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.DS_Store
+Thumbs.db
+
