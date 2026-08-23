@@ -7,3 +7,7 @@ reportlab
 python-dotenv
 fastembed
 chromadb
+langchain
+langchain-core
+langchain-openrouter
+openai
