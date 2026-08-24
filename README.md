@@ -5,7 +5,8 @@ on a laptop: PDFs → chunks → entity/relation graph → HyDE-enhanced retriev
 all through a Streamlit UI.
 
 
-###This new version is a slightly modified version of Literature_Review branch###
+***This new version is a slightly modified version of Literature_Review branch***
+
 The literature review generated is now a single agent.
 
 In order to create Research gaps - we need to use multi agents with langgraph. which will be implemented soon.
