@@ -3,22 +3,18 @@ SLR Orchestrator.
 
 Coordinates:
 
+    Research question
+          ↓
     Retrieved papers
           ↓
-    Paper Analysis
-          ↓
-       Comparison
-          ↓
-        Writer
+    Literature Review Generator
           ↓
     Literature Review
 """
 
 from collections import defaultdict
 
-import Paper_Analysis
-import Comparison
-import Writer
+import LR_gen
 
 
 def _collect_selected_papers(results, all_chunks):
@@ -74,11 +70,14 @@ Source file: {source_file}
 """
 
 
-def generate_review(results, all_chunks):
+def generate_review(research_question, results, all_chunks):
     """
     Generate a literature review from the papers retrieved by GraphRAG.
 
     Args:
+        research_question:
+            The research question entered by the user.
+
         results:
             Top-K results returned by GraphRAG.
 
@@ -89,6 +88,11 @@ def generate_review(results, all_chunks):
         str:
             Generated literature review.
     """
+
+    if not research_question or not research_question.strip():
+        raise ValueError(
+            "No research question was provided."
+        )
 
     if not results:
         raise ValueError(
@@ -109,17 +113,17 @@ def generate_review(results, all_chunks):
     )
 
     # ---------------------------------------------------------------
-    # Stage 2: Analyze each paper
+    # Stage 2: Format the selected papers
     # ---------------------------------------------------------------
 
-    analyses = []
+    papers = []
 
     for number, (doc_id, chunks) in enumerate(
         selected_papers.items(),
         start=1,
     ):
         print(
-            f"[SLR] Analyzing paper "
+            f"[SLR] Preparing paper "
             f"{number}/{len(selected_papers)}: {doc_id}"
         )
 
@@ -131,41 +135,24 @@ def generate_review(results, all_chunks):
             )
             continue
 
-        analysis = Paper_Analysis.analyze(
-            paper_text=paper_text,
-            paper_id=doc_id,
-        )
+        papers.append(paper_text)
 
-        analyses.append(analysis)
-
-    if not analyses:
+    if not papers:
         raise ValueError(
-            "None of the selected papers could be analyzed."
+            "None of the selected papers contained readable text."
         )
 
     # ---------------------------------------------------------------
-    # Stage 3: Compare papers
+    # Stage 3: Generate literature review
     # ---------------------------------------------------------------
 
     print(
-        f"[SLR] Comparing {len(analyses)} papers..."
+        "[SLR] Generating literature review..."
     )
 
-    comparison = Comparison.compare(
-        analyses
-    )
-
-    # ---------------------------------------------------------------
-    # Stage 4: Write literature review
-    # ---------------------------------------------------------------
-
-    print(
-        "[SLR] Writing literature review..."
-    )
-
-    review = Writer.write(
-        analyses=analyses,
-        comparison=comparison,
+    review = LR_gen.generate_literature_review(
+        research_question=research_question,
+        papers=papers,
     )
 
     print(

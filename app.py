@@ -186,8 +186,9 @@ if "search_result" in st.session_state:
         ):
             try:
                 review = slr.generate_review(
-                    result["results"],
-                    bundle["chunks"]
+                    research_question=query,
+                    results=result["results"],
+                    all_chunks=bundle["chunks"],
                 )
 
                 st.write(review)
