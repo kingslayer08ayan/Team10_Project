@@ -26,6 +26,9 @@ from networkx.algorithms.community import greedy_modularity_communities
 from . import entity_extraction, entity_resolution
 from .llm_backend import reason
 
+MIN_GENERIC_CONCEPT_CHUNKS = 2
+MAX_RELATIONS_PER_CHUNK = 250
+
 COMMUNITY_SUMMARY_SYSTEM_PROMPT = (
     "You summarize one cluster of related entities from a research-paper "
     "knowledge graph in exactly one sentence. Say what theme or topic connects "
@@ -49,6 +52,30 @@ def build_graph(chunks, progress_callback=None, embedder=None):
         raw_results.append((chunk, result))
         if progress_callback:
             progress_callback(i + 1, len(chunks) * 2)  # extraction is half the work
+
+    # One-off capitalized phrases are commonly author names or example data.
+    # Keep explicit domain entities, but require generic concepts to recur.
+    concept_chunk_counts = {}
+    for chunk, result in raw_results:
+        for ent in result.get("entities", []):
+            if ent.get("type", "CONCEPT") == "CONCEPT":
+                concept_chunk_counts.setdefault(ent["name"], set()).add(chunk.chunk_id)
+
+    filtered_results = []
+    for chunk, result in raw_results:
+        entities = [
+            ent for ent in result.get("entities", [])
+            if ent.get("type", "CONCEPT") != "CONCEPT"
+            or len(concept_chunk_counts.get(ent["name"], set())) >= MIN_GENERIC_CONCEPT_CHUNKS
+        ]
+        kept_names = {ent["name"] for ent in entities}
+        relations = [
+            rel for rel in result.get("relations", [])
+            if rel.get("source") in kept_names and rel.get("target") in kept_names
+        ][:MAX_RELATIONS_PER_CHUNK]
+        filtered_results.append((chunk, {"entities": entities, "relations": relations}))
+
+    raw_results = filtered_results
 
     # --- Stage 3a: entity resolution across the whole corpus ---
     all_texts = [c.text for c, _ in raw_results]

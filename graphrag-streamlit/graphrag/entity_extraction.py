@@ -21,6 +21,7 @@ DATASET_HINTS = ["ISIC", "HAM10000", "ChestX-ray14", "CBIS-DDSM", "EyePACS", "PA
                  "ChEMBL", "EyeQ", "COVID-CT", "RSNA"]
 METRIC_HINTS = ["AUC", "AUROC", "F1", "sensitivity", "specificity", "precision", "recall",
                "quadratic weighted kappa", "quadratic kappa", "accuracy", "calibration error"]
+MAX_OFFLINE_RELATIONS = 200
 
 CAP_PHRASE_RE = re.compile(r"\b([A-Z][a-zA-Z0-9\-]*(?:\s+[A-Z][a-zA-Z0-9\-]*){0,3})\b")
 ACRONYM_RE = re.compile(r"\b([A-Z]{2,6}(?:-\d+)?)\b")
@@ -93,11 +94,18 @@ def _offline_extract(chunk_text):
     # with the strongest relation type the chunk's own text suggests
     # (see RELATION_CUES above) rather than a flat co-occurs_with.
     relation_type = _infer_relation_type(chunk_text)
-    names = [e["name"] for e in entities]
+    typed_names = {e["name"]: e["type"] for e in entities}
+    names = list(typed_names)
     relations = []
     for i in range(len(names)):
         for j in range(i + 1, len(names)):
+            # Generic capitalized phrases are often author names or example
+            # text. Do not create a dense concept-to-concept graph.
+            if typed_names[names[i]] == "CONCEPT" and typed_names[names[j]] == "CONCEPT":
+                continue
             relations.append({"source": names[i], "target": names[j], "relation": relation_type})
+            if len(relations) >= MAX_OFFLINE_RELATIONS:
+                return {"entities": entities, "relations": relations}
 
     return {"entities": entities, "relations": relations}
 
