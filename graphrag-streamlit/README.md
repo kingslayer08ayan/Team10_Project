@@ -1,4 +1,4 @@
-# GraphRAG Literature Explorer (lightweight edition)
+# GraphRAG Literature Explore (lightweight edition) + Gap Finder
 
 A GraphRAG-style retrieval pipeline over your own PDFs, built to actually run
 on a laptop: PDFs → chunks → entity/relation graph → HyDE-enhanced retrieval,
