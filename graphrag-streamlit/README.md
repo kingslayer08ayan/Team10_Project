@@ -20,6 +20,15 @@ build only does one pass, and by default that pass is **fully offline**:
 On the 17-PDF sample set this builds the whole graph in ~0.1s and answers a
 query in ~2ms.
 
+FastEmbed is opt-in because local model initialization can consume substantial
+CPU, memory, disk, and network resources. Set `GRAPHRAG_USE_FASTEMBED=1` before
+launching only when you want local embeddings; the default uses TF-IDF.
+
+Hosted LLM calls are limited to 20 per process by default so an online build
+cannot accidentally issue thousands of requests. Override with
+`GRAPHRAG_LLM_CALL_LIMIT`, or set it to `0` only for a deliberately small test
+corpus.
+
 ## Optional: better extraction quality via your HF key
 
 If you want richer entity extraction and real HyDE generation, flip the
@@ -44,6 +53,14 @@ Anthropic works the same way if you set `ANTHROPIC_API_KEY` instead.
 pip install -r requirements.txt
 python3 generate_sample_pdfs.py   # only needed once, to populate database/ with demo PDFs
 streamlit run app.py
+```
+
+For a bounded online test, select Hugging Face in the sidebar and launch with:
+
+```powershell
+$env:GRAPHRAG_LLM_CALL_LIMIT = "20"
+$env:GRAPHRAG_USE_FASTEMBED = "0"
+python -m streamlit run app.py
 ```
 
 Replace the files in `database/` with your own PDFs any time -- the

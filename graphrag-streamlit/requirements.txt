@@ -7,3 +7,4 @@ reportlab
 python-dotenv
 chromadb
 fastembed
+langgraph

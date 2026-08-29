@@ -36,6 +36,7 @@ ACRONYM_ALIAS_RE = re.compile(
 )
 
 MERGE_THRESHOLD = 0.82
+EMBED_COMPARE_BLOCK_SIZE = 256
 
 
 def _initials_match(phrase, acronym):
@@ -94,15 +95,18 @@ def embedding_merge(entity_names, embedder, threshold=MERGE_THRESHOLD):
     norms = np.linalg.norm(vecs, axis=1, keepdims=True)
     norms[norms == 0] = 1e-9
     unit_vecs = vecs / norms
-    sim_matrix = unit_vecs @ unit_vecs.T
-
     uf = _UnionFind(names)
     merge_log = []
     for i in range(len(names)):
-        for j in range(i + 1, len(names)):
-            if sim_matrix[i, j] >= threshold:
-                uf.union(names[i], names[j])
-                merge_log.append((names[i], names[j], round(float(sim_matrix[i, j]), 3)))
+        for block_start in range(i + 1, len(names), EMBED_COMPARE_BLOCK_SIZE):
+            block_end = min(len(names), block_start + EMBED_COMPARE_BLOCK_SIZE)
+            similarities = unit_vecs[i] @ unit_vecs[block_start:block_end].T
+            for offset, similarity in enumerate(similarities):
+                if similarity >= threshold:
+                    j = block_start + offset
+                    uf.union(names[i], names[j])
+                    if len(merge_log) < 20:
+                        merge_log.append((names[i], names[j], round(float(similarity), 3)))
 
     # Pick canonical label per cluster: prefer the longest name (usually
     # the spelled-out form rather than an abbreviation)

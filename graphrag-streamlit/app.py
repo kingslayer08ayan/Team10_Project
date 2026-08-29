@@ -8,14 +8,156 @@ from dotenv import load_dotenv
 load_dotenv()  # reads .env in the working directory into os.environ, if present
 
 sys.path.insert(0, os.path.dirname(__file__))
-from graphrag import pipeline, retriever, llm_backend
+from graphrag import pipeline, retriever, llm_backend, gap_analysis, workflow
 
 st.set_page_config(page_title="GraphRAG Literature Explorer", layout="wide")
+
+st.markdown("""
+<style>
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Space+Grotesk:wght@400;500;600;700&display=swap');
+
+:root {
+    --ink: #172126;
+    --muted: #637078;
+    --paper: #edf1f0;
+    --surface: #fbfcfb;
+    --line: #cbd5d2;
+    --coral: #d65b48;
+    --accent-soft: #f7e6e1;
+}
+
+html, body, [class*="css"] { font-family: 'Space Grotesk', sans-serif; }
+[data-testid="stAppViewContainer"] {
+    background-color: var(--paper);
+    background-image:
+        linear-gradient(rgba(23, 33, 38, .028) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(23, 33, 38, .028) 1px, transparent 1px);
+    background-size: 32px 32px;
+    color: var(--ink);
+}
+[data-testid="stAppViewContainer"]::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    background: linear-gradient(115deg, rgba(255,255,255,.32), transparent 42%);
+    z-index: 0;
+}
+[data-testid="stAppViewContainer"] > .main { position: relative; z-index: 1; }
+[data-testid="stAppViewContainer"] p,
+[data-testid="stAppViewContainer"] label,
+[data-testid="stAppViewContainer"] [data-testid="stMarkdownContainer"],
+[data-testid="stAppViewContainer"] [data-testid="stCaptionContainer"] {
+    color: var(--ink);
+}
+[data-testid="stHeader"] { background: transparent; }
+[data-testid="stSidebar"] {
+    background: #e9eeeb;
+    border-right: 1px solid var(--line);
+}
+[data-testid="stSidebar"] > div:first-child { padding: 2rem 1.35rem; }
+[data-testid="stSidebar"] h2 {
+    color: var(--ink);
+    font-family: 'DM Mono', monospace;
+    font-size: .68rem;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    margin-top: 1.3rem;
+}
+[data-testid="stSidebar"] label,
+[data-testid="stSidebar"] .stCaption { color: var(--muted); }
+[data-testid="stSidebar"] [data-testid="stMarkdownContainer"] p { color: var(--ink); }
+
+section.main > div { max-width: 1280px; padding: 3.2rem 4rem 5rem; }
+h1, h2, h3 { color: var(--ink); }
+h1 {
+    font-family: 'Space Grotesk', sans-serif !important;
+    font-weight: 700;
+    font-size: clamp(2.4rem, 4vw, 4.7rem);
+    line-height: .98;
+    letter-spacing: 0;
+    max-width: 780px;
+    margin-bottom: .65rem;
+}
+h2, h3 { font-family: 'Space Grotesk', sans-serif !important; }
+h2 { font-size: 1.7rem; font-weight: 700; }
+h3 { font-size: 1.05rem; letter-spacing: .01em; }
+
+.console-kicker {
+    color: var(--coral);
+    font: 600 .7rem 'IBM Plex Mono', monospace;
+    letter-spacing: .12em;
+    text-transform: uppercase;
+    margin-bottom: .9rem;
+}
+.console-deck {
+    color: var(--muted);
+    font-size: 1rem;
+    max-width: 650px;
+    margin-bottom: 2.3rem;
+}
+[data-testid="stTextInput"] input,
+[data-testid="stTextArea"] textarea,
+[data-testid="stNumberInput"] input {
+    background: var(--surface);
+    border: 1px solid #cbd3d0;
+    border-radius: 3px;
+    color: var(--ink);
+}
+[data-testid="stTextInput"] input::placeholder,
+[data-testid="stTextArea"] textarea::placeholder { color: #66736f; opacity: 1; }
+[data-testid="stTextInput"] input:focus,
+[data-testid="stTextArea"] textarea:focus { border-color: var(--coral); box-shadow: 0 0 0 1px var(--coral); }
+button[kind="primary"] {
+    background: var(--coral) !important;
+    border: 1px solid var(--coral) !important;
+    border-radius: 3px !important;
+    font-weight: 700 !important;
+    color: #fff !important;
+}
+button[kind="primary"] *, button[kind="primary"] p { color: #fff !important; }
+button[kind="secondary"] {
+    border-radius: 3px !important;
+    background: var(--surface) !important;
+    color: var(--ink) !important;
+    border: 1px solid #aab8b4 !important;
+}
+button[kind="secondary"] *, button[kind="secondary"] p { color: var(--ink) !important; }
+[data-testid="stVerticalBlockBorderWrapper"] {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    box-shadow: 0 5px 18px rgba(23, 33, 38, .045);
+}
+[data-testid="stMetric"] {
+    background: rgba(255, 253, 250, .62);
+    border-left: 3px solid var(--coral);
+    padding: .55rem .7rem;
+}
+[data-testid="stMetricLabel"] { color: var(--muted); font-size: .72rem; }
+[data-testid="stMetricValue"] { color: var(--ink); font-family: 'IBM Plex Mono', monospace; font-size: 1.25rem; }
+[data-baseweb="tab-list"] { gap: 1.2rem; border-bottom: 1px solid var(--line); }
+[data-baseweb="tab"] { color: var(--muted); font-weight: 600; padding: .75rem .1rem; }
+[aria-selected="true"] { color: var(--coral) !important; }
+[data-testid="stExpander"] { border-color: var(--line); border-radius: 3px; background: transparent; }
+[data-testid="stExpander"] summary p { color: var(--ink); font-weight: 600; }
+code { color: var(--coral); background: var(--accent-soft); border-radius: 2px; }
+hr { border-color: var(--line); margin: 2.4rem 0; }
+small, [data-testid="stCaptionContainer"] { color: var(--muted); }
+section.main > div { animation: workspace-in .55s cubic-bezier(.22, 1, .36, 1); }
+button:active { transform: translateY(1px); }
+@keyframes workspace-in {
+    from { opacity: 0; transform: translateY(8px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+</style>
+""", unsafe_allow_html=True)
 
 # ---------------------------------------------------------------------------
 # Sidebar: backend selection + index build
 # ---------------------------------------------------------------------------
-st.sidebar.header("⚙️ Backend")
+st.sidebar.markdown('<div class="console-kicker">GraphRAG / research console</div>', unsafe_allow_html=True)
+st.sidebar.header("Backend")
 
 backend_choice = st.sidebar.radio(
     "Reasoning backend for entity extraction & HyDE",
@@ -60,14 +202,14 @@ else:
     os.environ.pop("HF_TOKEN", None)
 
 st.sidebar.divider()
-st.sidebar.header("📚 Knowledge Graph")
+st.sidebar.header("Knowledge graph")
 
 database_dir = st.sidebar.text_input("PDF folder", value="database")
 
 if "bundle" not in st.session_state:
     st.session_state.bundle = pipeline.load_cached()
 
-build_clicked = st.sidebar.button("🔨 Build / Rebuild Knowledge Graph", type="primary")
+build_clicked = st.sidebar.button("Build / Rebuild Knowledge Graph", type="primary")
 
 if build_clicked:
     progress_bar = st.sidebar.progress(0, text="Starting...")
@@ -108,8 +250,9 @@ else:
 # ---------------------------------------------------------------------------
 # Main: query
 # ---------------------------------------------------------------------------
-st.title("🔎 GraphRAG Literature Explorer")
-st.caption("PDFs → knowledge graph → HyDE-enhanced retrieval, entirely lightweight by default.")
+st.markdown('<div class="console-kicker">Evidence intelligence · local corpus</div>', unsafe_allow_html=True)
+st.title("GraphRAG Literature Explorer")
+st.markdown('<div class="console-deck">Trace ideas across papers, surface defensible gaps, and turn scattered evidence into a research landscape.</div>', unsafe_allow_html=True)
 
 if not bundle:
     st.warning("Build the knowledge graph from the sidebar first.")
@@ -134,6 +277,8 @@ if search_clicked and query.strip():
         query, bundle["chunks"], bundle["index"], bundle["graph"], bundle["communities"],
         top_k=int(top_k), use_hyde=use_hyde,
     )
+    st.session_state.last_retrieval = result
+    st.session_state.last_query = query
     elapsed = time.time() - t0
 
     with st.expander(f"HyDE hypothetical passage (source: {result['hyde_source']})", expanded=False):
@@ -170,10 +315,13 @@ if search_clicked and query.strip():
             st.markdown(
                 f"**{chunk.source_file}** — *{chunk.canonical_section}* "
                 f"({chunk.section_heading or 'untitled'}), p{chunk.page}  "
-                f"·  score `{r['final_score']:.3f}` "
+                f"·  evidence score `{r.get('evidence_score', r['final_score']):.3f}` "
+                f"(initial `{r.get('initial_score', r['final_score']):.3f}`) "
                 f"(vector `{r['vector_score']:.3f}` "
                 f"+ graph `{r['graph_boost']:.3f}` "
-                f"+ section prior `{r['section_prior']:.3f}`)"
+                f"+ section prior `{r['section_prior']:.3f}` "
+                f"+ evidence type `{r.get('evidence_type_score', 0.0):.3f}` "
+                f"+ claim `{r.get('claim_relevance', 0.0):.3f}`)"
             )
             st.write(chunk.text)
 
@@ -185,11 +333,68 @@ if search_clicked and query.strip():
 elif search_clicked:
     st.warning("Enter a question first.")
 
+if st.session_state.get("last_retrieval"):
+    st.divider()
+    gap_tab, review_tab = st.tabs(["Gap Analysis", "Literature Review"])
+    with gap_tab:
+        st.subheader("Gap and limitation analysis")
+        st.caption("Analyzes the latest reranked evidence chunks and their graph context.")
+        if st.button("Run gap analysis and literature review"):
+            with st.spinner("Extracting and aggregating evidence-backed claims..."):
+                workflow_state = workflow.run(
+                    st.session_state.get("last_query", ""), bundle["chunks"],
+                    bundle["index"], bundle["graph"], bundle["communities"],
+                    top_k=int(top_k), use_hyde=use_hyde, generate_review=True,
+                )
+                st.session_state.gap_analysis = workflow_state["analysis"]
+                st.session_state.landscape = workflow_state["landscape"]
+                st.session_state.literature_review = workflow_state.get("review", "")
+                st.session_state.literature_review_source = workflow_state.get("review_source", "offline")
+
+        analysis = st.session_state.get("gap_analysis")
+        if analysis:
+            st.caption(f"Source: `{analysis['source']}` · "
+                       f"{len(analysis['candidates'])} aggregated candidate claims")
+            for candidate in analysis["candidates"]:
+                with st.container(border=True):
+                    st.markdown(
+                        f"**{candidate['gap_id']} · {candidate['type']}** · "
+                        f"priority `{candidate.get('priority_score', 0.0):.3f}`"
+                    )
+                    st.write(candidate["claim"])
+                    st.caption(
+                        f"Papers: {', '.join(candidate['supporting_papers']) or 'none'} · "
+                        f"Evidence: {', '.join(candidate['evidence_types']) or 'none'} · "
+                        f"Independent papers: {candidate['supporting_paper_count']} · "
+                        f"Confidence: {candidate['confidence']:.2f} · "
+                        f"Importance: {candidate['importance']:.2f}"
+                    )
+                    st.caption("Priority factors: " + "; ".join(
+                        candidate.get("priority_reasons", ["not ranked"])
+                    ))
+                    st.caption(f"Validation: {candidate.get('validation_note', 'not run')}")
+                    with st.expander("Evidence details", expanded=False):
+                        st.write("**Supporting chunks:**", candidate["supporting_chunk_ids"])
+                        st.write("**Entities:**", candidate["relevant_entities"])
+                        st.write("**KG relationships:**", candidate["kg_relationships"])
+                        st.write("**Reasoning:**", candidate["reasoning"])
+
+        if st.session_state.get("landscape"):
+            st.subheader("Research landscape matrix")
+            st.dataframe(st.session_state.landscape, width="stretch")
+
+    with review_tab:
+        if st.session_state.get("literature_review"):
+            st.caption(f"Source: `{st.session_state.get('literature_review_source', 'offline')}`")
+            st.write(st.session_state.literature_review)
+        else:
+            st.info("Run the analysis from the Gap Analysis tab to generate a review.")
+
 # ---------------------------------------------------------------------------
 # Evaluation panel
 # ---------------------------------------------------------------------------
 st.divider()
-with st.expander("📊 Evaluation metrics", expanded=False):
+with st.expander("Evaluation metrics", expanded=False):
     from graphrag import evaluate_retrieval as ev
 
     st.caption("recall@k needs a labeled eval set (query → known-relevant doc_ids) -- "

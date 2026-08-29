@@ -28,6 +28,9 @@ ANTHROPIC_MODEL = "claude-sonnet-4-6"
 HF_MODEL_DEFAULT = "Qwen/Qwen3-8B"
 HF_ROUTER_URL = "https://router.huggingface.co/v1/chat/completions"
 _hf_credits_exhausted = False
+_llm_disabled = False
+_llm_call_count = 0
+LLM_CALL_LIMIT = max(0, int(os.environ.get("GRAPHRAG_LLM_CALL_LIMIT", "20")))
 
 
 def _active_backend():
@@ -65,11 +68,11 @@ def _call_anthropic(prompt, system, max_tokens):
     return "\n".join(b["text"] for b in data.get("content", []) if b.get("type") == "text")
 
 
-def _call_huggingface(prompt, system, max_tokens):
+def _call_huggingface(prompt, system, max_tokens, model_override=None):
     """Hits HF's OpenAI-compatible chat-completions router. Runs on HF's
     hosted infrastructure -- nothing is downloaded or executed locally."""
     api_key = os.environ.get("HF_TOKEN") or os.environ.get("HF_API_KEY")
-    model = os.environ.get("HF_MODEL", HF_MODEL_DEFAULT)
+    model = model_override or os.environ.get("HF_MODEL", HF_MODEL_DEFAULT)
     messages = []
     if system:
         messages.append({"role": "system", "content": system})
@@ -121,16 +124,17 @@ def _call_huggingface(prompt, system, max_tokens):
     return content
 
 
-def call_llm(prompt: str, system: str = "", max_tokens: int = 500) -> str:
+def call_llm(prompt: str, system: str = "", max_tokens: int = 500, model=None) -> str:
     backend = _active_backend()
     if backend == "anthropic":
         return _call_anthropic(prompt, system, max_tokens)
     if backend == "huggingface":
-        return _call_huggingface(prompt, system, max_tokens)
+        return _call_huggingface(prompt, system, max_tokens, model_override=model)
     raise RuntimeError("No LLM backend configured (set ANTHROPIC_API_KEY or HF_TOKEN).")
 
 
-def reason(prompt: str, system: str = "", max_tokens: int = 500, offline_fn=None):
+def reason(prompt: str, system: str = "", max_tokens: int = 500,
+           offline_fn=None, model=None):
     """
     Returns (text, source) where source is 'llm' or 'offline'.
 
@@ -143,10 +147,17 @@ def reason(prompt: str, system: str = "", max_tokens: int = 500, offline_fn=None
     caller needs its own None-guard.
     """
     global _hf_credits_exhausted
+    global _llm_disabled
+    global _llm_call_count
 
-    if llm_available() and not _hf_credits_exhausted:
+    budget_available = LLM_CALL_LIMIT == 0 or _llm_call_count < LLM_CALL_LIMIT
+    if (llm_available() and not _hf_credits_exhausted and not _llm_disabled
+            and budget_available):
         try:
-            result = call_llm(prompt, system=system, max_tokens=max_tokens)
+            _llm_call_count += 1
+            result = call_llm(
+                prompt, system=system, max_tokens=max_tokens, model=model
+            )
             if result is None or not result.strip():
                 raise RuntimeError("LLM call succeeded but returned empty/None content")
             return result, "llm"
@@ -155,7 +166,10 @@ def reason(prompt: str, system: str = "", max_tokens: int = 500, offline_fn=None
                 _hf_credits_exhausted = True
                 print("[llm_backend] HF credits are exhausted; using offline fallback for the rest of this run.")
             else:
+                _llm_disabled = True
                 print(f"[llm_backend] {_active_backend()} call failed ({e}); using offline fallback.")
+    elif llm_available() and not budget_available:
+        print(f"[llm_backend] LLM call limit ({LLM_CALL_LIMIT}) reached; using offline fallback.")
     if offline_fn is None:
         raise RuntimeError("No LLM available and no offline_fn provided.")
     return offline_fn(), "offline"

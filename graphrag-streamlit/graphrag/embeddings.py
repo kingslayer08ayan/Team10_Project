@@ -27,6 +27,8 @@ CHROMA_DIR = ".cache/chroma"
 COLLECTION_NAME = "graphrag_chunks"
 FASTEMBED_MODEL = "BAAI/bge-small-en-v1.5"
 EMBEDDER_INIT_TIMEOUT_S = 8  # fail fast instead of riding fastembed's ~90s retry backoff
+EMBED_BATCH_SIZE = 32
+USE_FASTEMBED = os.environ.get("GRAPHRAG_USE_FASTEMBED", "0") == "1"
 
 
 _embedder_cache = {"value": "unset"}  # sentinel distinguishes "not tried" from "tried, got None"
@@ -145,6 +147,9 @@ class ChunkIndex:
         self.backend = self._build(chunks)
 
     def _build(self, chunks):
+        if not USE_FASTEMBED:
+            return self._build_tfidf(chunks)
+
         TextEmbedding = _try_import_fastembed()
         chromadb = _try_import_chroma()
 
@@ -208,16 +213,15 @@ class ChunkIndex:
                 }
                 for c in new_chunks
             ]
-            # fastembed returns a generator; list() forces evaluation
-            embeddings = list(self._embedder.embed(embed_texts))
-            # Chroma expects plain Python lists, not numpy arrays
-            embeddings_list = [e.tolist() for e in embeddings]
-            self._collection.upsert(
-                ids=ids,
-                documents=display_texts,
-                embeddings=embeddings_list,
-                metadatas=metadatas,
-            )
+            for start in range(0, len(new_chunks), EMBED_BATCH_SIZE):
+                end = start + EMBED_BATCH_SIZE
+                embeddings = list(self._embedder.embed(embed_texts[start:end]))
+                self._collection.upsert(
+                    ids=ids[start:end],
+                    documents=display_texts[start:end],
+                    embeddings=[e.tolist() for e in embeddings],
+                    metadatas=metadatas[start:end],
+                )
             print(f"[embeddings] Added {len(new_chunks)} new chunks to Chroma "
                   f"({len(existing_ids)} already indexed).")
         else:
@@ -234,18 +238,18 @@ class ChunkIndex:
         else:
             return self._tfidf_vec.transform([text])
 
-    def similarity_scores(self, query_vec):
+    def similarity_scores(self, query_vec, top_n=None):
         """
         Returns a numpy array of similarity scores, one per chunk,
         in the same order as self.chunks.
         """
         if self.backend == "chroma":
-            return self._chroma_scores(query_vec)
+            return self._chroma_scores(query_vec, top_n=top_n)
         else:
             from sklearn.metrics.pairwise import cosine_similarity
             return cosine_similarity(query_vec, self._tfidf_matrix).flatten()
 
-    def _chroma_scores(self, query_vec):
+    def _chroma_scores(self, query_vec, top_n=None):
         """
         Query Chroma for all chunks, convert distances to similarities,
         and return a score array aligned with self.chunks order.
@@ -254,9 +258,12 @@ class ChunkIndex:
         if n == 0:
             return np.zeros(0)
 
+        result_count = min(n, self._collection.count())
+        if top_n is not None:
+            result_count = min(result_count, max(1, top_n))
         results = self._collection.query(
             query_embeddings=[query_vec.tolist()],
-            n_results=min(n, self._collection.count()),
+            n_results=result_count,
             include=["distances"],
         )
         ids = results["ids"][0]

@@ -70,7 +70,7 @@ def _classify(term):
         return "DATASET"
     if term in METRIC_HINTS:
         return "METRIC"
-    return "CONCEPT"
+    return None
 
 
 def _offline_extract(chunk_text):
@@ -88,7 +88,11 @@ def _offline_extract(chunk_text):
         if len(phrase.split()) >= 2 or ACRONYM_RE.fullmatch(phrase):
             found.add(phrase)
 
-    entities = [{"name": e, "type": _classify(e)} for e in found]
+    entities = [
+        {"name": e, "type": entity_type}
+        for e in found
+        if (entity_type := _classify(e)) is not None
+    ]
 
     # Relations: every pair of entities found in the same chunk, tagged
     # with the strongest relation type the chunk's own text suggests
@@ -118,6 +122,17 @@ def extract(chunk_text):
     if source == "offline":
         return json.loads(result)
     try:
-        return json.loads(result)
+        parsed = json.loads(result)
+        parsed["entities"] = [
+            entity for entity in parsed.get("entities", [])
+            if entity.get("type") in {"METHOD", "DATASET", "METRIC", "PROBLEM"}
+        ]
+        kept_names = {entity["name"] for entity in parsed["entities"]}
+        parsed["relations"] = [
+            relation for relation in parsed.get("relations", [])
+            if relation.get("source") in kept_names
+            and relation.get("target") in kept_names
+        ]
+        return parsed
     except Exception:
         return _offline_extract(chunk_text)

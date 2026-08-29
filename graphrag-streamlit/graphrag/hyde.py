@@ -18,7 +18,7 @@ from .llm_backend import reason
 
 HYDE_SYSTEM_PROMPT = (
     "You are helping a research-review retrieval system. Given a user's "
-    "question about a corpus of AI/healthcare research papers, write a short "
+    "question about a corpus of AI research papers, write a short "
     "(3-5 sentence) hypothetical passage that would plausibly ANSWER the "
     "question, in the style of a paper abstract. Do not hedge or say you "
     "don't know -- invent plausible technical detail; it is only used to "

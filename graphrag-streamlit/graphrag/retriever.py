@@ -36,6 +36,7 @@ FINAL SCORE = vector_score + graph_boost + section_prior
    score -- this is a cheap, interpretable prior, not a learned model.
 """
 
+import re
 import numpy as np
 from collections import deque
 from . import hyde as hyde_module
@@ -57,6 +58,29 @@ SECTION_PRIOR_KEYWORDS = {
     "Related Work": ["prior work", "existing", "previous", "compared to", "literature"],
     "Introduction": ["motivation", "why", "problem statement", "overview"],
     "Conclusion": ["summary", "overall", "in conclusion", "takeaway"],
+}
+
+# Evidence reranking is deliberately a bounded second pass over the best
+# initial candidates, so it improves evidence selection without rescoring the
+# entire corpus with another model call.
+EVIDENCE_CANDIDATE_COUNT = 20
+INITIAL_WEIGHTS = (0.70, 0.20, 0.10)  # vector, graph, section prior
+EVIDENCE_WEIGHTS = (0.45, 0.25, 0.20, 0.10)  # initial, semantic, type, claim
+EVIDENCE_SECTIONS = {
+    "Observations", "Discussion", "Conclusion", "Methodology", "Introduction",
+}
+EVIDENCE_TYPE_KEYWORDS = {
+    "Observations": ("result", "results", "evaluat", "benchmark", "outperform",
+                      "improv", "performance", "comparison", "compared", "negative"),
+    "Discussion": ("limitation", "limited", "weakness", "shortcoming", "future work",
+                    "remain", "cannot", "fail", "unresolved", "challenge"),
+    "Conclusion": ("limitation", "future work", "remain", "conclude", "challenge"),
+    "Methodology": ("method", "approach", "model", "algorithm", "propose", "framework"),
+    "Introduction": ("problem", "lack", "challenge", "difficult", "motivat", "gap"),
+}
+STOPWORDS = {
+    "about", "which", "what", "where", "when", "that", "this", "with", "from",
+    "paper", "papers", "does", "their", "there", "have", "into", "under", "are",
 }
 
 
@@ -134,7 +158,8 @@ def _chunk_section_prior(chunk, matched_sections, top_vector_score):
     return 0.0
 
 
-def _chunk_graph_boost(chunk, entity_scores, graph, top_vector_score):
+def _chunk_graph_boost(chunk, entity_scores, graph, top_vector_score,
+                        chunk_entities=None):
     """
     Returns the boost for one chunk: max contribution across all entities
     it mentions, scaled to BASE_BOOST_FRACTION of the top vector score.
@@ -142,15 +167,60 @@ def _chunk_graph_boost(chunk, entity_scores, graph, top_vector_score):
     if not entity_scores or graph is None:
         return 0.0
 
-    best = 0.0
-    for name, attrs in graph.nodes(data=True):
-        if chunk.chunk_id not in attrs.get("chunk_ids", set()):
-            continue
-        score = entity_scores.get(name, 0.0)
-        if score > best:
-            best = score
+    best = max((entity_scores.get(name, 0.0) for name in
+                (chunk_entities or {}).get(chunk.chunk_id, ())), default=0.0)
+    if best == 0.0 and chunk_entities is None:
+        for name, attrs in graph.nodes(data=True):
+            if chunk.chunk_id in attrs.get("chunk_ids", set()):
+                best = max(best, entity_scores.get(name, 0.0))
 
     return best * BASE_BOOST_FRACTION * top_vector_score
+
+
+def _claim_relevance(query, text):
+    query_terms = {term for term in re.findall(r"[a-z0-9]{3,}", query.lower())
+                   if term not in STOPWORDS}
+    if not query_terms:
+        return 0.0
+    text_terms = set(re.findall(r"[a-z0-9]{3,}", text.lower()))
+    return len(query_terms & text_terms) / len(query_terms)
+
+
+def _evidence_type_score(chunk, text):
+    section = getattr(chunk, "canonical_section", "")
+    keywords = EVIDENCE_TYPE_KEYWORDS.get(section, ())
+    if section not in EVIDENCE_SECTIONS or not keywords:
+        return 0.0
+    text_lower = text.lower()
+    matches = sum(keyword in text_lower for keyword in keywords)
+    return min(1.0, matches / 3.0)
+
+
+def _rerank_evidence(candidates, query, top_vector_score):
+    """Rerank only initial candidates using research-evidence signals."""
+    for result in candidates:
+        initial = (
+            INITIAL_WEIGHTS[0] * result["vector_score"] / top_vector_score
+            + INITIAL_WEIGHTS[1] * result["graph_boost"] / top_vector_score
+            + INITIAL_WEIGHTS[2] * result["section_prior"] / top_vector_score
+        )
+        chunk = result["chunk"]
+        semantic = result["vector_score"] / top_vector_score
+        evidence_type = _evidence_type_score(chunk, chunk.text)
+        claim_relevance = _claim_relevance(query, chunk.text)
+        evidence_score = (
+            EVIDENCE_WEIGHTS[0] * initial
+            + EVIDENCE_WEIGHTS[1] * semantic
+            + EVIDENCE_WEIGHTS[2] * evidence_type
+            + EVIDENCE_WEIGHTS[3] * claim_relevance
+        )
+        result["initial_score"] = round(initial, 4)
+        result["semantic_score"] = round(semantic, 4)
+        result["evidence_type_score"] = round(evidence_type, 4)
+        result["claim_relevance"] = round(claim_relevance, 4)
+        result["evidence_score"] = round(evidence_score, 4)
+    candidates.sort(key=lambda result: result["evidence_score"], reverse=True)
+    return candidates
 
 
 # ------------------------------------------------------------------
@@ -176,7 +246,9 @@ def retrieve(query, chunks, index, graph, communities, top_k=5, use_hyde=True):
 
     # --- vector scores from Chroma (or TF-IDF fallback) ---
     query_vec = index.embed_query(search_text)
-    vector_scores = index.similarity_scores(query_vec)
+    vector_scores = index.similarity_scores(
+        query_vec, top_n=min(len(chunks), max(top_k * 8, EVIDENCE_CANDIDATE_COUNT * 2))
+    )
 
     top_vector_score = float(np.max(vector_scores)) if len(vector_scores) else 1.0
     if top_vector_score == 0:
@@ -185,6 +257,10 @@ def retrieve(query, chunks, index, graph, communities, top_k=5, use_hyde=True):
     # --- graph traversal for boost ---
     matched_entities = _match_query_entities(query, graph)
     entity_scores = _bfs_entity_scores(matched_entities, graph)
+    chunk_entities = {}
+    for name, attrs in graph.nodes(data=True):
+        for chunk_id in attrs.get("chunk_ids", set()):
+            chunk_entities.setdefault(chunk_id, []).append(name)
 
     # --- section priors from query phrasing ---
     matched_sections = _matched_prior_sections(query)
@@ -192,7 +268,9 @@ def retrieve(query, chunks, index, graph, communities, top_k=5, use_hyde=True):
     # --- combine and rank ---
     scored = []
     for chunk, vscore in zip(chunks, vector_scores):
-        graph_boost = _chunk_graph_boost(chunk, entity_scores, graph, top_vector_score)
+        graph_boost = _chunk_graph_boost(
+            chunk, entity_scores, graph, top_vector_score, chunk_entities
+        )
         section_prior = _chunk_section_prior(chunk, matched_sections, top_vector_score)
         final = float(vscore) + graph_boost + section_prior
         scored.append({
@@ -205,6 +283,12 @@ def retrieve(query, chunks, index, graph, communities, top_k=5, use_hyde=True):
 
     scored.sort(key=lambda r: r["final_score"], reverse=True)
 
+    # Evidence reranking happens after initial retrieval and before paper-level
+    # deduplication, so each paper still competes using its best evidence chunk.
+    evidence_candidates = scored[:min(EVIDENCE_CANDIDATE_COUNT, len(scored))]
+    _rerank_evidence(evidence_candidates, query, top_vector_score)
+    scored = evidence_candidates + scored[len(evidence_candidates):]
+
     # --- paper-level deduplication ---
     # Chroma ranks chunks independently, so the same PDF can fill all
     # top-k slots with different pages. Keep only the highest-scoring
@@ -215,7 +299,7 @@ def retrieve(query, chunks, index, graph, communities, top_k=5, use_hyde=True):
     for r in scored:
         doc_id = r["chunk"].doc_id
         if doc_id not in seen_docs:
-            seen_docs[doc_id] = r   # first occurrence = highest score for this doc
+            seen_docs[doc_id] = r   # first occurrence = highest evidence score
 
     deduped = list(seen_docs.values())[:top_k]
     top = [r for r in deduped if r["final_score"] > 0]
@@ -226,5 +310,6 @@ def retrieve(query, chunks, index, graph, communities, top_k=5, use_hyde=True):
         "matched_entities": matched_entities,
         "hop_entity_scores": entity_scores,
         "matched_sections": matched_sections,
+        "evidence_results": evidence_candidates,
         "results": top,
     }
