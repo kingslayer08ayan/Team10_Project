@@ -212,8 +212,9 @@ if "bundle" not in st.session_state:
 build_clicked = st.sidebar.button("Build / Rebuild Knowledge Graph", type="primary")
 
 if build_clicked:
+    build_start_time = time.time()
     progress_bar = st.sidebar.progress(0, text="Starting...")
-    progress_note = st.sidebar.caption("Queued...")
+    progress_note = st.sidebar.empty()
 
     def _progress(done, total, stage=None, message=None):
         if total <= 0:
@@ -222,21 +223,23 @@ if build_clicked:
         elapsed = time.time() - build_start_time
         eta = "estimating..."
         if done > 0 and elapsed > 0:
-            eta_seconds = elapsed * (total - done) / max(done, 1)
-            eta = f"~{eta_seconds:.0f}s left"
+            eta_seconds = elapsed * max(total - done, 0) / max(done, 1)
+            eta = f"ETA {eta_seconds:.0f}s"
         label = message or (stage or "Processing")
         progress_bar.progress(pct, text=f"{label} • {done}/{total}")
-        progress_note.write(f"{stage or 'Processing'} • {done}/{total} • ETA {eta}")
+        progress_note.caption(f"{stage or 'Processing'} • {done}/{total} • {eta}")
 
-    build_start_time = time.time()
     with st.spinner("Ingesting PDFs and building graph..."):
         try:
             st.session_state.bundle = pipeline.build(
                 database_dir,
                 progress_callback=_progress,
             )
+            progress_bar.progress(1.0, text="Completed")
+            progress_note.caption(f"Completed in {time.time() - build_start_time:.1f}s")
             st.sidebar.success(f"Built in {time.time() - build_start_time:.2f}s")
         except Exception as e:
+            progress_note.caption("Build failed")
             st.sidebar.error(f"Build failed: {e}")
 
 bundle = st.session_state.bundle
