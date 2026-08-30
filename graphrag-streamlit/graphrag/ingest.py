@@ -298,7 +298,8 @@ def _assemble_sections(pdf, doc_id, embedder=None):
 # Public entry point
 # ------------------------------------------------------------------
 
-def load_and_chunk(database_dir="database", chunk_size=500, overlap=60, embedder=None):
+def load_and_chunk(database_dir="database", chunk_size=500, overlap=60, embedder=None,
+                  progress_callback=None):
     """
     Returns (chunks, sections, pdf_files):
       chunks   - list of Chunk (child-level, for embedding/retrieval)
@@ -318,9 +319,16 @@ def load_and_chunk(database_dir="database", chunk_size=500, overlap=60, embedder
     all_sections = []
     pdf_paths = sorted(glob.glob(os.path.join(database_dir, "*.pdf")))
 
-    for pdf_path in pdf_paths:
+    for idx, pdf_path in enumerate(pdf_paths, start=1):
         doc_id = os.path.splitext(os.path.basename(pdf_path))[0]
         source_file = os.path.basename(pdf_path)
+        if progress_callback:
+            try:
+                progress_callback(idx, len(pdf_paths), stage="ingestion",
+                                  message=f"Ingesting PDF {idx}/{len(pdf_paths)}: {source_file}")
+            except TypeError:
+                progress_callback(idx, len(pdf_paths))
+
         try:
             pdf = fitz.open(pdf_path)
         except Exception as e:

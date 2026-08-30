@@ -36,7 +36,7 @@ def build(database_dir="database", progress_callback=None):
     embedder = _get_shared_embedder()
 
     chunks, doc_sections, pdf_files = ingest.load_and_chunk(
-        database_dir, embedder=embedder
+        database_dir, embedder=embedder, progress_callback=progress_callback
     )
     if not chunks:
         raise RuntimeError(f"No extractable text found in PDFs under '{database_dir}/'.")

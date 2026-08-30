@@ -213,15 +213,29 @@ build_clicked = st.sidebar.button("Build / Rebuild Knowledge Graph", type="prima
 
 if build_clicked:
     progress_bar = st.sidebar.progress(0, text="Starting...")
+    progress_note = st.sidebar.caption("Queued...")
 
-    def _progress(done, total):
-        progress_bar.progress(done / total, text=f"Extracting entities: chunk {done}/{total}")
+    def _progress(done, total, stage=None, message=None):
+        if total <= 0:
+            return
+        pct = min(done / total, 1.0)
+        elapsed = time.time() - build_start_time
+        eta = "estimating..."
+        if done > 0 and elapsed > 0:
+            eta_seconds = elapsed * (total - done) / max(done, 1)
+            eta = f"~{eta_seconds:.0f}s left"
+        label = message or (stage or "Processing")
+        progress_bar.progress(pct, text=f"{label} • {done}/{total}")
+        progress_note.write(f"{stage or 'Processing'} • {done}/{total} • ETA {eta}")
 
-    t0 = time.time()
+    build_start_time = time.time()
     with st.spinner("Ingesting PDFs and building graph..."):
         try:
-            st.session_state.bundle = pipeline.build(database_dir, progress_callback=_progress)
-            st.sidebar.success(f"Built in {time.time() - t0:.2f}s")
+            st.session_state.bundle = pipeline.build(
+                database_dir,
+                progress_callback=_progress,
+            )
+            st.sidebar.success(f"Built in {time.time() - build_start_time:.2f}s")
         except Exception as e:
             st.sidebar.error(f"Build failed: {e}")
 

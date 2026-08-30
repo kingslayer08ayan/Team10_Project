@@ -26,7 +26,6 @@ from networkx.algorithms.community import greedy_modularity_communities
 from . import entity_extraction, entity_resolution
 from .llm_backend import reason
 
-MIN_GENERIC_CONCEPT_CHUNKS = 2
 MAX_RELATIONS_PER_CHUNK = 250
 
 COMMUNITY_SUMMARY_SYSTEM_PROMPT = (
@@ -34,6 +33,15 @@ COMMUNITY_SUMMARY_SYSTEM_PROMPT = (
     "knowledge graph in exactly one sentence. Say what theme or topic connects "
     "them, in plain language a researcher skimming a report would understand."
 )
+
+
+def _emit_progress(progress_callback, done, total, stage=None, message=None):
+    if progress_callback is None:
+        return
+    try:
+        progress_callback(done, total, stage=stage, message=message)
+    except TypeError:
+        progress_callback(done, total)
 
 
 def build_graph(chunks, progress_callback=None, embedder=None):
@@ -50,23 +58,19 @@ def build_graph(chunks, progress_callback=None, embedder=None):
     for i, chunk in enumerate(chunks):
         result = entity_extraction.extract(chunk.text)
         raw_results.append((chunk, result))
-        if progress_callback:
-            progress_callback(i + 1, len(chunks) * 2)  # extraction is half the work
-
-    # One-off capitalized phrases are commonly author names or example data.
-    # Keep explicit domain entities, but require generic concepts to recur.
-    concept_chunk_counts = {}
-    for chunk, result in raw_results:
-        for ent in result.get("entities", []):
-            if ent.get("type", "CONCEPT") == "CONCEPT":
-                concept_chunk_counts.setdefault(ent["name"], set()).add(chunk.chunk_id)
+        _emit_progress(
+            progress_callback,
+            i + 1,
+            len(chunks) * 2,
+            stage="entity extraction",
+            message=f"Extracting entities: chunk {i + 1}/{len(chunks)}",
+        )
 
     filtered_results = []
     for chunk, result in raw_results:
         entities = [
             ent for ent in result.get("entities", [])
-            if ent.get("type", "CONCEPT") != "CONCEPT"
-            or len(concept_chunk_counts.get(ent["name"], set())) >= MIN_GENERIC_CONCEPT_CHUNKS
+            if ent.get("type") in {"METHOD", "DATASET", "METRIC", "PROBLEM"}
         ]
         kept_names = {ent["name"] for ent in entities}
         relations = [
@@ -93,7 +97,7 @@ def build_graph(chunks, progress_callback=None, embedder=None):
                 G.nodes[name]["doc_ids"].add(chunk.doc_id)
                 G.nodes[name]["aliases"].add(ent["name"])
             else:
-                G.add_node(name, type=ent.get("type", "CONCEPT"), mentions=1,
+                G.add_node(name, type=ent["type"], mentions=1,
                           chunk_ids={chunk.chunk_id}, doc_ids={chunk.doc_id},
                           aliases={ent["name"]})
 
@@ -114,8 +118,13 @@ def build_graph(chunks, progress_callback=None, embedder=None):
                 G.add_edge(src, tgt, weight=1, relation_types={relation_type},
                           chunk_ids={chunk.chunk_id})
 
-        if progress_callback:
-            progress_callback(len(chunks) + i + 1, len(chunks) * 2)
+        _emit_progress(
+            progress_callback,
+            len(chunks) + i + 1,
+            len(chunks) * 2,
+            stage="graph assembly",
+            message=f"Building graph: chunk {i + 1}/{len(chunks)}",
+        )
 
     # --- Community detection (still one flat level) ---
     communities = {}
